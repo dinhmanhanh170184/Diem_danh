@@ -839,20 +839,23 @@
     resetSampleDots();
 
     const prompts = [
-      'Mẫu 1/5: nhìn thẳng vào camera',
-      'Mẫu 2/5: hơi quay mặt sang trái',
-      'Mẫu 3/5: hơi quay mặt sang phải',
-      'Mẫu 4/5: hơi ngẩng mặt lên',
-      'Mẫu 5/5: hơi cúi mặt xuống'
+      { text: 'Mẫu 1/5: nhìn thẳng vào camera', audio: 'audio/vui_long_nhin_truc_dien_vao_camera.mp3' },
+      { text: 'Mẫu 2/5: hơi quay mặt sang trái', audio: 'audio/vui_long_xoay_sang_trai.mp3' },
+      { text: 'Mẫu 3/5: hơi quay mặt sang phải', audio: 'audio/vui_long_xoay_sang_phai.mp3' },
+      { text: 'Mẫu 4/5: hơi ngẩng mặt lên', audio: 'audio/vui_long_hoi_ngang_len.mp3' },
+      { text: 'Mẫu 5/5: hơi cúi mặt xuống', audio: 'audio/vui_long_hoi_cui_xuong.mp3' }
     ];
 
     try {
       const descriptors = [];
-      let imageData = '';
+      const imageDataList = [];
 
       for (let i = 0; i < prompts.length; i++) {
-        setStatus(prompts[i] + '. Giữ yên...', 'warn');
-        await sleep(i === 0 ? 1000 : 850);
+        setStatus(prompts[i].text + '. Hãy làm theo hướng dẫn bằng giọng nói...', 'warn');
+        await playRegistrationPrompt(prompts[i].audio);
+        // Cho người đăng ký một nhịp ngắn để ổn định đúng tư thế sau khi lời nhắc kết thúc.
+        await sleep(700);
+        setStatus(prompts[i].text + '. Giữ yên...', 'warn');
         const detection = await captureFaceDescriptorWithRetry(3);
         if (!detection) throw new Error('Không lấy được mẫu ' + (i + 1) + '. Hãy giữ mặt rõ và thử lại.');
 
@@ -863,24 +866,26 @@
         }
 
         descriptors.push(descriptor);
+
+        // Chụp đúng ảnh tương ứng với descriptor vừa lấy.
+        // Như vậy mẫu 1..5 luôn có cặp Descriptor <-> Ảnh cùng thời điểm.
+        const sampleImage = captureRegistrationPhoto();
+        imageDataList.push(sampleImage);
         markSampleDone(i);
 
-        if (!imageData) {
-          imageData = captureRegistrationPhoto();
-          const img = document.getElementById('registerPhoto');
-          img.src = imageData;
-          img.style.display = 'block';
-        }
+        const img = document.getElementById('registerPhoto');
+        img.src = sampleImage;
+        img.style.display = 'block';
       }
 
-      setStatus('Đã lấy đủ 5 mẫu. Đang lưu descriptor và ảnh lên Google Drive...', 'warn');
-      const res = await uploadRegistrationPayload({ employeeId, fullName, descriptors, imageData });
+      setStatus('Đã lấy đủ 5 mẫu. Đang lưu 5 descriptor + 5 ảnh lên Google Drive...', 'warn');
+      const res = await uploadRegistrationPayload({ employeeId, fullName, descriptors, imageDataList });
       if (!res.ok) throw new Error(res.error || 'Không đăng ký được.');
 
       setStatus(
         (res.action === 'updated' ? 'Đã cập nhật' : 'Đã đăng ký') + ': ' +
         res.employeeId + ' - ' + res.fullName + ' | ' +
-        Number(res.sampleCount || 5) + ' mẫu | đã lưu ảnh Drive',
+        Number(res.sampleCount || 5) + ' mẫu | đã lưu ' + Number(res.photoCount || 5) + ' ảnh Drive',
         'ok'
       );
       await reloadFaces();
@@ -890,6 +895,36 @@
       registrationBusy = false;
       btn.disabled = false;
     }
+  }
+
+  let registrationPromptAudio = null;
+
+  async function playRegistrationPrompt(src) {
+    // Dừng lời nhắc trước (nếu có) để 5 câu không bao giờ phát chồng lên nhau.
+    if (registrationPromptAudio) {
+      try { registrationPromptAudio.pause(); } catch (e) {}
+      registrationPromptAudio = null;
+    }
+
+    const audio = new Audio(src);
+    registrationPromptAudio = audio;
+    audio.preload = 'auto';
+
+    await new Promise((resolve, reject) => {
+      let finished = false;
+      const done = () => {
+        if (finished) return;
+        finished = true;
+        if (registrationPromptAudio === audio) registrationPromptAudio = null;
+        resolve();
+      };
+      audio.onended = done;
+      audio.onerror = () => reject(new Error('Không tải/phát được file âm thanh: ' + src));
+      const result = audio.play();
+      if (result && typeof result.catch === 'function') {
+        result.catch(() => reject(new Error('Trình duyệt chặn phát âm thanh. Hãy bấm lại nút đăng ký 5 mẫu.')));
+      }
+    });
   }
 
   async function captureFaceDescriptorWithRetry(maxTries) {
