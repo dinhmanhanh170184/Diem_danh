@@ -207,6 +207,14 @@
       font-size:12px;
     }
 
+
+    .sample-guide{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:12px;background:#0c1625}
+    .sample-title{font-weight:800;margin-bottom:7px}
+    .sample-dots{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-top:10px}
+    .sample-dot{text-align:center;padding:7px 4px;border-radius:8px;border:1px solid var(--border);color:var(--muted);font-size:12px}
+    .sample-dot.done{background:rgba(34,197,94,.16);border-color:var(--green);color:#86efac}
+    .register-photo{margin-top:10px;display:none;width:100%;max-height:210px;object-fit:contain;border-radius:10px;border:1px solid var(--border);background:#000}
+
     @media(max-width:850px){
       .grid{grid-template-columns:1fr}
       .camera-box{min-height:240px}
@@ -311,13 +319,21 @@
           <input id="fullName" autocomplete="off" placeholder="Ví dụ: Nguyễn Văn A">
         </label>
 
-        <div class="small" style="margin-top:10px">
-          Hãy nhìn thẳng camera, đủ sáng và không che khuôn mặt.
+        <div class="sample-guide">
+          <div class="sample-title">Đăng ký 5 mẫu khuôn mặt</div>
+          <div class="small">
+            Hệ thống sẽ lấy 5 mẫu: nhìn thẳng, hơi quay trái, hơi quay phải, hơi ngẩng và hơi cúi.
+            Giữ khuôn mặt trong khung, đủ sáng và không che mắt/mũi.
+          </div>
+          <div id="sampleDots" class="sample-dots">
+            <div class="sample-dot">1</div><div class="sample-dot">2</div><div class="sample-dot">3</div><div class="sample-dot">4</div><div class="sample-dot">5</div>
+          </div>
+          <img id="registerPhoto" class="register-photo" alt="Ảnh đăng ký khuôn mặt">
         </div>
 
         <div class="row">
           <button id="btnRegister" class="primary" onclick="captureAndRegister()">
-            Chụp & đăng ký
+            Bắt đầu đăng ký 5 mẫu
           </button>
         </div>
 
@@ -334,7 +350,7 @@
     'https://script.google.com/macros/s/AKfycbxudhZfrvZ8dsFbuo9B0e5XeRQldokQIXyhNDipFZk9LtEAVQeFCigSgldTdlNJ3J4_/exec';
 
   const MODEL_URL =
-  'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+    'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
 
   let appConfig = {
     maxDistance: 0.48,
@@ -348,6 +364,7 @@
   let modelsReady = false;
   let cameraReady = false;
   let scanBusy = false;
+  let registrationBusy = false;
 
   let faceDb = [];
   let matcher = null;
@@ -509,33 +526,37 @@
   }
 
   function buildMatcher() {
-    if (!faceDb.length) {
-      matcher = null;
-      return;
-    }
+    if (!faceDb.length) { matcher = null; return; }
 
-    const labeled =
-      faceDb.map(person => {
-        return new faceapi.LabeledFaceDescriptors(
-          person.employeeId +
-          '|||' +
-          person.fullName,
-          [
-            new Float32Array(
-              person.descriptor
-            )
-          ]
-        );
-      });
-
-    matcher =
-      new faceapi.FaceMatcher(
-        labeled,
-        Number(
-          appConfig.maxDistance ||
-          0.48
-        )
+    const labeled = faceDb.map(person => {
+      const samples = Array.isArray(person.descriptors) && person.descriptors.length
+        ? person.descriptors
+        : (Array.isArray(person.descriptor) ? [person.descriptor] : []);
+      return new faceapi.LabeledFaceDescriptors(
+        person.employeeId + '|||' + person.fullName,
+        samples.map(d => new Float32Array(d))
       );
+    }).filter(item => item.descriptors.length > 0);
+
+    matcher = labeled.length
+      ? new faceapi.FaceMatcher(labeled, Number(appConfig.maxDistance || 0.48))
+      : null;
+  }
+
+  function findBestPerson(queryDescriptor) {
+    let best = null;
+    faceDb.forEach(person => {
+      const samples = Array.isArray(person.descriptors) && person.descriptors.length
+        ? person.descriptors
+        : (Array.isArray(person.descriptor) ? [person.descriptor] : []);
+      samples.forEach((sample, sampleIndex) => {
+        const distance = faceapi.euclideanDistance(queryDescriptor, new Float32Array(sample));
+        if (!best || distance < best.distance) {
+          best = { employeeId: person.employeeId, fullName: person.fullName, distance, sampleIndex, sampleCount: samples.length };
+        }
+      });
+    });
+    return best;
   }
 
   async function startCamera() {
@@ -654,6 +675,7 @@
       !cameraReady ||
       !modelsReady ||
       scanBusy ||
+      registrationBusy ||
       video.readyState < 2
     ) {
       return;
@@ -689,51 +711,28 @@
 
       drawDetection(detection);
 
-      if (!matcher) {
-        setStatus(
-          'Đã thấy khuôn mặt nhưng chưa có nhân viên đăng ký.',
-          'warn'
-        );
-
+      if (!faceDb.length) {
+        setStatus('Đã thấy khuôn mặt nhưng chưa có nhân viên đăng ký.', 'warn');
         return;
       }
 
-      const best =
-        matcher.findBestMatch(
-          detection.descriptor
-        );
+      const best = findBestPerson(detection.descriptor);
+      const threshold = Number(appConfig.maxDistance || 0.48);
 
-      if (best.label === 'unknown') {
-        setStatus(
-          'Không nhận diện được. Distance: ' +
-          best.distance.toFixed(3),
-          'warn'
-        );
-
-        showLastResult(
-          'Không xác định',
-          '',
-          best.distance,
-          false
-        );
-
+      if (!best || best.distance > threshold) {
+        const d = best ? best.distance : 1;
+        setStatus('Không nhận diện được. Distance tốt nhất: ' + d.toFixed(3), 'warn');
+        showLastResult('Không xác định', '', d, false);
         return;
       }
 
-      const parts =
-        best.label.split('|||');
-
-      const employeeId =
-        parts[0];
-
-      const fullName =
-        parts.slice(1).join('|||');
+      const employeeId = best.employeeId;
+      const fullName = best.fullName;
 
       setStatus(
-        'Đã nhận diện: ' +
-        employeeId +
-        ' - ' +
-        fullName,
+        'Đã nhận diện: ' + employeeId + ' - ' + fullName +
+        ' | Best distance: ' + best.distance.toFixed(3) +
+        ' | mẫu ' + (best.sampleIndex + 1) + '/' + best.sampleCount,
         'ok'
       );
 
@@ -828,105 +827,123 @@
   }
 
   async function captureAndRegister() {
-    const employeeId =
-      document.getElementById('employeeId').value.trim();
+    const employeeId = document.getElementById('employeeId').value.trim();
+    const fullName = document.getElementById('fullName').value.trim();
 
-    const fullName =
-      document.getElementById('fullName').value.trim();
+    if (!employeeId || !fullName) { setStatus('Vui lòng nhập mã nhân viên và họ tên.', 'warn'); return; }
+    if (!cameraReady) { setStatus('Hãy bật camera trước khi đăng ký.', 'warn'); return; }
 
-    if (!employeeId || !fullName) {
-      setStatus(
-        'Vui lòng nhập mã nhân viên và họ tên.',
-        'warn'
-      );
-
-      return;
-    }
-
-    if (!cameraReady) {
-      setStatus(
-        'Hãy bật camera trước khi đăng ký.',
-        'warn'
-      );
-
-      return;
-    }
-
-    const btn =
-      document.getElementById('btnRegister');
-
+    const btn = document.getElementById('btnRegister');
     btn.disabled = true;
+    registrationBusy = true;
+    resetSampleDots();
+
+    const prompts = [
+      'Mẫu 1/5: nhìn thẳng vào camera',
+      'Mẫu 2/5: hơi quay mặt sang trái',
+      'Mẫu 3/5: hơi quay mặt sang phải',
+      'Mẫu 4/5: hơi ngẩng mặt lên',
+      'Mẫu 5/5: hơi cúi mặt xuống'
+    ];
 
     try {
-      setStatus(
-        'Đang lấy descriptor khuôn mặt...'
-      );
+      const descriptors = [];
+      let imageData = '';
 
-      const detection =
-        await faceapi
-          .detectSingleFace(
-            video,
-            new faceapi.TinyFaceDetectorOptions({
-              inputSize: 416,
-              scoreThreshold: 0.60
-            })
-          )
-          .withFaceLandmarks()
-          .withFaceDescriptor();
+      for (let i = 0; i < prompts.length; i++) {
+        setStatus(prompts[i] + '. Giữ yên...', 'warn');
+        await sleep(i === 0 ? 1000 : 850);
+        const detection = await captureFaceDescriptorWithRetry(3);
+        if (!detection) throw new Error('Không lấy được mẫu ' + (i + 1) + '. Hãy giữ mặt rõ và thử lại.');
 
-      if (!detection) {
-        throw new Error(
-          'Không thấy khuôn mặt đủ rõ.'
-        );
+        const descriptor = Array.from(detection.descriptor).map(v => Number(v.toFixed(6)));
+        if (descriptors.length) {
+          const samePersonDistance = faceapi.euclideanDistance(new Float32Array(descriptors[0]), new Float32Array(descriptor));
+          if (samePersonDistance > 0.60) throw new Error('Mẫu ' + (i + 1) + ' khác quá xa mẫu đầu. Hãy đăng ký cùng một người.');
+        }
+
+        descriptors.push(descriptor);
+        markSampleDone(i);
+
+        if (!imageData) {
+          imageData = captureRegistrationPhoto();
+          const img = document.getElementById('registerPhoto');
+          img.src = imageData;
+          img.style.display = 'block';
+        }
       }
 
-      const descriptor =
-        Array.from(
-          detection.descriptor
-        );
-
-      const res =
-        await jsonpRequest({
-          action: 'register',
-          employeeId: employeeId,
-          fullName: fullName,
-          descriptor:
-            JSON.stringify(descriptor)
-        });
-
-      if (!res.ok) {
-        throw new Error(
-          res.error ||
-          'Không đăng ký được.'
-        );
-      }
+      setStatus('Đã lấy đủ 5 mẫu. Đang lưu descriptor và ảnh lên Google Drive...', 'warn');
+      const res = await uploadRegistrationPayload({ employeeId, fullName, descriptors, imageData });
+      if (!res.ok) throw new Error(res.error || 'Không đăng ký được.');
 
       setStatus(
-        (
-          res.action === 'updated'
-          ? 'Đã cập nhật'
-          : 'Đã đăng ký'
-        ) +
-        ': ' +
-        res.employeeId +
-        ' - ' +
-        res.fullName,
+        (res.action === 'updated' ? 'Đã cập nhật' : 'Đã đăng ký') + ': ' +
+        res.employeeId + ' - ' + res.fullName + ' | ' +
+        Number(res.sampleCount || 5) + ' mẫu | đã lưu ảnh Drive',
         'ok'
       );
-
       await reloadFaces();
-
     } catch (err) {
-      setStatus(
-        'Đăng ký thất bại: ' +
-        err.message,
-        'err'
-      );
-
+      setStatus('Đăng ký thất bại: ' + err.message, 'err');
     } finally {
+      registrationBusy = false;
       btn.disabled = false;
     }
   }
+
+  async function captureFaceDescriptorWithRetry(maxTries) {
+    for (let attempt = 0; attempt < maxTries; attempt++) {
+      const detection = await faceapi
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.60 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+      if (detection) return detection;
+      await sleep(350);
+    }
+    return null;
+  }
+
+  function captureRegistrationPhoto() {
+    const vw = video.videoWidth || 640;
+    const vh = video.videoHeight || 480;
+    const maxWidth = 320;
+    const scale = Math.min(1, maxWidth / vw);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(vw * scale));
+    canvas.height = Math.max(1, Math.round(vh * scale));
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.65);
+  }
+
+  async function uploadRegistrationPayload(payload) {
+    const raw = JSON.stringify(payload);
+    const chunkSize = 2200;
+    const chunks = [];
+    for (let i = 0; i < raw.length; i += chunkSize) chunks.push(raw.slice(i, i + chunkSize));
+    if (chunks.length > 100) throw new Error('Gói đăng ký quá lớn.');
+
+    const uploadId = 'u' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+
+    for (let i = 0; i < chunks.length; i++) {
+      setStatus('Đang gửi dữ liệu đăng ký: ' + (i + 1) + '/' + chunks.length + ' (' + Math.round(((i + 1) / chunks.length) * 100) + '%)', 'warn');
+      const part = await jsonpRequest({ action: 'uploadchunk', uploadId, index: i, total: chunks.length, data: chunks[i] });
+      if (!part.ok) throw new Error(part.error || 'Không gửi được dữ liệu đăng ký.');
+    }
+
+    return await jsonpRequest({ action: 'registercommit', uploadId, total: chunks.length });
+  }
+
+  function resetSampleDots() {
+    document.querySelectorAll('#sampleDots .sample-dot').forEach(el => el.classList.remove('done'));
+  }
+
+  function markSampleDone(index) {
+    const dots = document.querySelectorAll('#sampleDots .sample-dot');
+    if (dots[index]) dots[index].classList.add('done');
+  }
+
+  function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
   async function loadToday() {
     const res =
