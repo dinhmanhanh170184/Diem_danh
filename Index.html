@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Điểm danh khuôn mặt</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#08111f;
+      --card:#101a2a;
+      --card2:#162235;
+      --border:#26364d;
+      --text:#f8fafc;
+      --muted:#9fb0c5;
+      --green:#22c55e;
+      --red:#ef4444;
+      --yellow:#f59e0b;
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:Arial,Helvetica,sans-serif;
+    }
+
+    .wrap{
+      max-width:1180px;
+      margin:auto;
+      padding:16px;
+    }
+
+    h1{
+      margin:0 0 6px;
+      font-size:26px;
+    }
+
+    .subtitle{
+      color:var(--muted);
+      margin-bottom:16px;
+      line-height:1.5;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns:minmax(0,1.25fr) minmax(340px,.75fr);
+      gap:16px;
+    }
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:14px;
+    }
+
+    .camera-box{
+      position:relative;
+      overflow:hidden;
+      border-radius:14px;
+      background:#000;
+      aspect-ratio:4/3;
+      min-height:300px;
+    }
+
+    video,canvas{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      object-fit:cover;
+    }
+
+    #overlay{pointer-events:none}
+
+    .row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:10px;
+    }
+
+    button{
+      border:0;
+      border-radius:10px;
+      padding:11px 14px;
+      font-weight:700;
+      cursor:pointer;
+    }
+
+    button.primary{
+      background:var(--green);
+      color:#04210d;
+    }
+
+    button.secondary{
+      background:#34445c;
+      color:white;
+    }
+
+    button.danger{
+      background:var(--red);
+      color:white;
+    }
+
+    button.tab.active{
+      background:var(--green);
+      color:#04210d;
+    }
+
+    button:disabled{
+      opacity:.5;
+      cursor:not-allowed;
+    }
+
+    .status{
+      margin-top:10px;
+      background:var(--card2);
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:11px 12px;
+      min-height:44px;
+      color:var(--muted);
+      line-height:1.45;
+    }
+
+    .status.ok{color:#86efac}
+    .status.err{color:#fca5a5}
+    .status.warn{color:#fde68a}
+
+    .result{
+      margin-top:10px;
+      background:#0c1625;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:13px;
+    }
+
+    .result-name{
+      font-size:22px;
+      font-weight:800;
+      margin-top:3px;
+    }
+
+    .small{
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+    }
+
+    label{
+      display:block;
+      margin-top:11px;
+      color:#d5deea;
+      font-size:14px;
+    }
+
+    input{
+      width:100%;
+      margin-top:6px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:#0c1625;
+      color:white;
+      padding:11px;
+      font-size:15px;
+    }
+
+    .tabs{
+      display:flex;
+      gap:8px;
+      margin-bottom:12px;
+    }
+
+    .hidden{display:none!important}
+
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:13px;
+    }
+
+    th,td{
+      padding:9px 7px;
+      border-bottom:1px solid var(--border);
+      text-align:left;
+      white-space:nowrap;
+    }
+
+    th{color:#d5deea}
+
+    .table-wrap{
+      overflow:auto;
+      max-height:380px;
+      margin-top:10px;
+    }
+
+    .badge{
+      display:inline-block;
+      padding:3px 7px;
+      border-radius:999px;
+      background:#34445c;
+      font-size:12px;
+    }
+
+    @media(max-width:850px){
+      .grid{grid-template-columns:1fr}
+      .camera-box{min-height:240px}
+      h1{font-size:22px}
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+  <h1 id="appTitle">Điểm danh khuôn mặt</h1>
+
+  <div class="subtitle">
+    Dùng được trên PC/laptop và điện thoại.
+    PC sử dụng webcam; điện thoại có thể đổi camera trước/sau.
+  </div>
+
+  <div class="grid">
+
+    <div class="card">
+
+      <div class="camera-box">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="overlay"></canvas>
+      </div>
+
+      <div class="row">
+        <button class="primary" onclick="startCamera()">Bật camera</button>
+        <button class="secondary" onclick="switchCamera()">Đổi camera</button>
+        <button class="danger" onclick="stopCamera()">Tắt camera</button>
+      </div>
+
+      <div id="status" class="status">
+        Đang khởi tạo...
+      </div>
+
+      <div id="lastResult" class="result">
+        <div class="small">Kết quả gần nhất</div>
+        <div class="result-name">Chưa có</div>
+      </div>
+
+    </div>
+
+    <div class="card">
+
+      <div class="tabs">
+        <button id="tabAttend" class="tab active" onclick="showTab('attend')">
+          Điểm danh
+        </button>
+
+        <button id="tabRegister" class="tab secondary" onclick="showTab('register')">
+          Đăng ký khuôn mặt
+        </button>
+      </div>
+
+      <div id="panelAttend">
+
+        <div class="small">
+          Khi nhận diện đúng, hệ thống tự ghi vào Google Sheet.
+        </div>
+
+        <div class="row">
+          <button class="secondary" onclick="reloadFaces()">Tải lại khuôn mặt</button>
+          <button class="secondary" onclick="loadToday()">Làm mới lịch sử</button>
+        </div>
+
+        <h3>Điểm danh hôm nay</h3>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Giờ</th>
+                <th>Mã</th>
+                <th>Họ tên</th>
+                <th>Loại</th>
+                <th>Tin cậy</th>
+              </tr>
+            </thead>
+
+            <tbody id="todayBody">
+              <tr>
+                <td colspan="5" class="small">Chưa có dữ liệu</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <div id="panelRegister" class="hidden">
+
+        <label>
+          Mã nhân viên
+          <input id="employeeId" autocomplete="off" placeholder="Ví dụ: NV001">
+        </label>
+
+        <label>
+          Họ tên
+          <input id="fullName" autocomplete="off" placeholder="Ví dụ: Nguyễn Văn A">
+        </label>
+
+        <div class="small" style="margin-top:10px">
+          Hãy nhìn thẳng camera, đủ sáng và không che khuôn mặt.
+        </div>
+
+        <div class="row">
+          <button id="btnRegister" class="primary" onclick="captureAndRegister()">
+            Chụp & đăng ký
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  const APPS_SCRIPT_URL =
+    'https://script.google.com/macros/s/AKfycbxudhZfrvZ8dsFbuo9B0e5XeRQldokQIXyhNDipFZk9LtEAVQeFCigSgldTdlNJ3J4_/exec';
+
+  const MODEL_URL =
+    'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
+
+  let appConfig = {
+    maxDistance: 0.48,
+    cooldownSeconds: 30,
+    appName: 'Điểm danh khuôn mặt'
+  };
+
+  let stream = null;
+  let facingMode = 'user';
+
+  let modelsReady = false;
+  let cameraReady = false;
+  let scanBusy = false;
+
+  let faceDb = [];
+  let matcher = null;
+  let scanTimer = null;
+
+  const lastMarked = {};
+
+  const video = document.getElementById('video');
+  const overlay = document.getElementById('overlay');
+  const statusEl = document.getElementById('status');
+  const lastResultEl = document.getElementById('lastResult');
+
+  window.addEventListener('load', initApp);
+
+  async function initApp() {
+    setStatus('Đang tải model nhận diện...');
+
+    try {
+      await waitForFaceApi();
+      await loadModels();
+
+      modelsReady = true;
+
+      const cfg = await jsonpRequest({
+        action: 'config'
+      });
+
+      if (!cfg.ok) {
+        throw new Error(cfg.error || 'Không đọc được cấu hình.');
+      }
+
+      appConfig = cfg;
+
+      document.getElementById('appTitle').textContent =
+        cfg.appName || 'Điểm danh khuôn mặt';
+
+      await reloadFaces();
+      await loadToday();
+
+      setStatus('Sẵn sàng. Bấm "Bật camera".', 'ok');
+
+    } catch (err) {
+      setStatus('Khởi tạo thất bại: ' + err.message, 'err');
+    }
+  }
+
+  function waitForFaceApi() {
+    return new Promise((resolve, reject) => {
+      let count = 0;
+
+      const timer = setInterval(() => {
+        count++;
+
+        if (window.faceapi) {
+          clearInterval(timer);
+          resolve();
+        } else if (count > 150) {
+          clearInterval(timer);
+          reject(new Error('Không tải được face-api.js.'));
+        }
+      }, 100);
+    });
+  }
+
+  async function loadModels() {
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+    ]);
+  }
+
+  function jsonpRequest(params) {
+    return new Promise((resolve, reject) => {
+      const callbackName =
+        '__faceCallback_' +
+        Date.now() +
+        '_' +
+        Math.floor(Math.random() * 100000);
+
+      const script =
+        document.createElement('script');
+
+      const timeout =
+        setTimeout(() => {
+          cleanup();
+          reject(new Error('Apps Script không phản hồi.'));
+        }, 20000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+
+        if (script.parentNode) {
+          script.parentNode.removeChild(script);
+        }
+
+        try {
+          delete window[callbackName];
+        } catch (e) {
+          window[callbackName] = undefined;
+        }
+      }
+
+      window[callbackName] = function(data) {
+        cleanup();
+        resolve(data);
+      };
+
+      const query = new URLSearchParams();
+
+      Object.keys(params).forEach(key => {
+        if (
+          params[key] !== undefined &&
+          params[key] !== null
+        ) {
+          query.set(key, String(params[key]));
+        }
+      });
+
+      query.set('callback', callbackName);
+
+      script.src =
+        APPS_SCRIPT_URL +
+        '?' +
+        query.toString();
+
+      script.onerror = function() {
+        cleanup();
+        reject(new Error('Không gọi được Apps Script.'));
+      };
+
+      document.head.appendChild(script);
+    });
+  }
+
+  async function reloadFaces() {
+    const res =
+      await jsonpRequest({
+        action: 'faces'
+      });
+
+    if (!res.ok) {
+      throw new Error(
+        res.error ||
+        'Không tải được khuôn mặt.'
+      );
+    }
+
+    faceDb = res.faces || [];
+
+    buildMatcher();
+
+    setStatus(
+      'Đã tải ' +
+      faceDb.length +
+      ' khuôn mặt.',
+      'ok'
+    );
+  }
+
+  function buildMatcher() {
+    if (!faceDb.length) {
+      matcher = null;
+      return;
+    }
+
+    const labeled =
+      faceDb.map(person => {
+        return new faceapi.LabeledFaceDescriptors(
+          person.employeeId +
+          '|||' +
+          person.fullName,
+          [
+            new Float32Array(
+              person.descriptor
+            )
+          ]
+        );
+      });
+
+    matcher =
+      new faceapi.FaceMatcher(
+        labeled,
+        Number(
+          appConfig.maxDistance ||
+          0.48
+        )
+      );
+  }
+
+  async function startCamera() {
+    if (!modelsReady) {
+      setStatus(
+        'Model nhận diện chưa sẵn sàng.',
+        'warn'
+      );
+
+      return;
+    }
+
+    if (
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia
+    ) {
+      setStatus(
+        'Trình duyệt không hỗ trợ camera.',
+        'err'
+      );
+
+      return;
+    }
+
+    stopCamera();
+
+    try {
+      setStatus('Đang xin quyền camera...');
+
+      stream =
+        await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: {
+              ideal: facingMode
+            },
+
+            width: {
+              ideal: 1280
+            },
+
+            height: {
+              ideal: 720
+            }
+          },
+
+          audio: false
+        });
+
+      video.srcObject = stream;
+
+      await video.play();
+
+      cameraReady = true;
+
+      resizeOverlay();
+
+      setStatus(
+        'Camera đã bật. Đưa khuôn mặt vào giữa khung hình.',
+        'ok'
+      );
+
+      startScanning();
+
+    } catch (err) {
+      cameraReady = false;
+
+      setStatus(
+        'Không mở được camera: ' +
+        err.name +
+        ' - ' +
+        err.message,
+        'err'
+      );
+    }
+  }
+
+  function stopCamera() {
+    if (scanTimer) {
+      clearInterval(scanTimer);
+      scanTimer = null;
+    }
+
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+
+    video.srcObject = null;
+    cameraReady = false;
+    clearOverlay();
+  }
+
+  async function switchCamera() {
+    facingMode =
+      facingMode === 'user'
+      ? 'environment'
+      : 'user';
+
+    await startCamera();
+  }
+
+  function startScanning() {
+    if (scanTimer) {
+      clearInterval(scanTimer);
+    }
+
+    scanTimer =
+      setInterval(
+        scanOnce,
+        900
+      );
+  }
+
+  async function scanOnce() {
+    if (
+      !cameraReady ||
+      !modelsReady ||
+      scanBusy ||
+      video.readyState < 2
+    ) {
+      return;
+    }
+
+    scanBusy = true;
+
+    try {
+      resizeOverlay();
+
+      const detection =
+        await faceapi
+          .detectSingleFace(
+            video,
+            new faceapi.TinyFaceDetectorOptions({
+              inputSize: 320,
+              scoreThreshold: 0.55
+            })
+          )
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+      clearOverlay();
+
+      if (!detection) {
+        setStatus(
+          'Chưa thấy khuôn mặt rõ.',
+          'warn'
+        );
+
+        return;
+      }
+
+      drawDetection(detection);
+
+      if (!matcher) {
+        setStatus(
+          'Đã thấy khuôn mặt nhưng chưa có nhân viên đăng ký.',
+          'warn'
+        );
+
+        return;
+      }
+
+      const best =
+        matcher.findBestMatch(
+          detection.descriptor
+        );
+
+      if (best.label === 'unknown') {
+        setStatus(
+          'Không nhận diện được. Distance: ' +
+          best.distance.toFixed(3),
+          'warn'
+        );
+
+        showLastResult(
+          'Không xác định',
+          '',
+          best.distance,
+          false
+        );
+
+        return;
+      }
+
+      const parts =
+        best.label.split('|||');
+
+      const employeeId =
+        parts[0];
+
+      const fullName =
+        parts.slice(1).join('|||');
+
+      setStatus(
+        'Đã nhận diện: ' +
+        employeeId +
+        ' - ' +
+        fullName,
+        'ok'
+      );
+
+      showLastResult(
+        fullName,
+        employeeId,
+        best.distance,
+        true
+      );
+
+      const now = Date.now();
+
+      const localCooldown =
+        Math.max(
+          5000,
+          Number(
+            appConfig.cooldownSeconds ||
+            30
+          ) * 1000
+        );
+
+      const last =
+        lastMarked[employeeId] || 0;
+
+      if (
+        now - last <
+        localCooldown
+      ) {
+        return;
+      }
+
+      lastMarked[employeeId] = now;
+
+      const res =
+        await jsonpRequest({
+          action: 'attendance',
+          employeeId: employeeId,
+          distance: Number(best.distance),
+          device: getDeviceName(),
+          userAgent: navigator.userAgent
+        });
+
+      if (!res.ok) {
+        lastMarked[employeeId] = 0;
+
+        throw new Error(
+          res.error ||
+          'Không ghi được điểm danh.'
+        );
+      }
+
+      setStatus(
+        res.employeeId +
+        ' - ' +
+        res.fullName +
+        ': ' +
+        (res.type || 'ĐÃ GHI') +
+        ' lúc ' +
+        res.time +
+        (
+          res.duplicate
+          ? ' - không ghi lặp'
+          : ''
+        ),
+        'ok'
+      );
+
+      showLastResult(
+        res.fullName,
+        res.employeeId,
+        best.distance,
+        true,
+        res.type,
+        res.time,
+        res.confidence
+      );
+
+      if (!res.duplicate) {
+        await loadToday();
+      }
+
+    } catch (err) {
+      setStatus(
+        'Lỗi nhận diện/ghi dữ liệu: ' +
+        err.message,
+        'err'
+      );
+
+    } finally {
+      scanBusy = false;
+    }
+  }
+
+  async function captureAndRegister() {
+    const employeeId =
+      document.getElementById('employeeId').value.trim();
+
+    const fullName =
+      document.getElementById('fullName').value.trim();
+
+    if (!employeeId || !fullName) {
+      setStatus(
+        'Vui lòng nhập mã nhân viên và họ tên.',
+        'warn'
+      );
+
+      return;
+    }
+
+    if (!cameraReady) {
+      setStatus(
+        'Hãy bật camera trước khi đăng ký.',
+        'warn'
+      );
+
+      return;
+    }
+
+    const btn =
+      document.getElementById('btnRegister');
+
+    btn.disabled = true;
+
+    try {
+      setStatus(
+        'Đang lấy descriptor khuôn mặt...'
+      );
+
+      const detection =
+        await faceapi
+          .detectSingleFace(
+            video,
+            new faceapi.TinyFaceDetectorOptions({
+              inputSize: 416,
+              scoreThreshold: 0.60
+            })
+          )
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+      if (!detection) {
+        throw new Error(
+          'Không thấy khuôn mặt đủ rõ.'
+        );
+      }
+
+      const descriptor =
+        Array.from(
+          detection.descriptor
+        );
+
+      const res =
+        await jsonpRequest({
+          action: 'register',
+          employeeId: employeeId,
+          fullName: fullName,
+          descriptor:
+            JSON.stringify(descriptor)
+        });
+
+      if (!res.ok) {
+        throw new Error(
+          res.error ||
+          'Không đăng ký được.'
+        );
+      }
+
+      setStatus(
+        (
+          res.action === 'updated'
+          ? 'Đã cập nhật'
+          : 'Đã đăng ký'
+        ) +
+        ': ' +
+        res.employeeId +
+        ' - ' +
+        res.fullName,
+        'ok'
+      );
+
+      await reloadFaces();
+
+    } catch (err) {
+      setStatus(
+        'Đăng ký thất bại: ' +
+        err.message,
+        'err'
+      );
+
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function loadToday() {
+    const res =
+      await jsonpRequest({
+        action: 'today'
+      });
+
+    if (!res.ok) {
+      throw new Error(
+        res.error ||
+        'Không đọc được lịch sử.'
+      );
+    }
+
+    const rows =
+      res.rows || [];
+
+    const body =
+      document.getElementById('todayBody');
+
+    if (!rows.length) {
+      body.innerHTML =
+        '<tr>' +
+        '<td colspan="5" class="small">' +
+        'Chưa có dữ liệu hôm nay' +
+        '</td>' +
+        '</tr>';
+
+      return;
+    }
+
+    body.innerHTML =
+      rows.map(row => (
+        '<tr>' +
+        '<td>' + escapeHtml(row.time) + '</td>' +
+        '<td>' + escapeHtml(row.employeeId) + '</td>' +
+        '<td>' + escapeHtml(row.fullName) + '</td>' +
+        '<td><span class="badge">' +
+        escapeHtml(row.type) +
+        '</span></td>' +
+        '<td>' +
+        Number(row.confidence || 0).toFixed(1) +
+        '%</td>' +
+        '</tr>'
+      )).join('');
+  }
+
+  function showTab(tab) {
+    const attend =
+      tab === 'attend';
+
+    document
+      .getElementById('panelAttend')
+      .classList.toggle(
+        'hidden',
+        !attend
+      );
+
+    document
+      .getElementById('panelRegister')
+      .classList.toggle(
+        'hidden',
+        attend
+      );
+
+    document
+      .getElementById('tabAttend')
+      .classList.toggle(
+        'active',
+        attend
+      );
+
+    document
+      .getElementById('tabRegister')
+      .classList.toggle(
+        'active',
+        !attend
+      );
+  }
+
+  function resizeOverlay() {
+    const rect =
+      video.getBoundingClientRect();
+
+    overlay.width =
+      Math.max(
+        1,
+        Math.floor(rect.width)
+      );
+
+    overlay.height =
+      Math.max(
+        1,
+        Math.floor(rect.height)
+      );
+  }
+
+  function clearOverlay() {
+    overlay
+      .getContext('2d')
+      .clearRect(
+        0,
+        0,
+        overlay.width,
+        overlay.height
+      );
+  }
+
+  function drawDetection(detection) {
+    const resized =
+      faceapi.resizeResults(
+        detection,
+        {
+          width: overlay.width,
+          height: overlay.height
+        }
+      );
+
+    faceapi.draw.drawDetections(
+      overlay,
+      resized
+    );
+
+    faceapi.draw.drawFaceLandmarks(
+      overlay,
+      resized
+    );
+  }
+
+  function showLastResult(
+    name,
+    employeeId,
+    distance,
+    ok,
+    type = '',
+    time = '',
+    confidence = null
+  ) {
+    lastResultEl.innerHTML =
+      '<div class="small">Kết quả gần nhất</div>' +
+      '<div class="result-name">' +
+      escapeHtml(name) +
+      '</div>' +
+      '<div>' +
+      escapeHtml(employeeId) +
+      '</div>' +
+      '<div class="small">' +
+      'Distance: ' +
+      Number(distance).toFixed(3) +
+      (
+        confidence !== null
+        ? ' | Tin cậy: ' +
+          Number(confidence).toFixed(1) +
+          '%'
+        : ''
+      ) +
+      (
+        type
+        ? ' | ' + escapeHtml(type)
+        : ''
+      ) +
+      (
+        time
+        ? ' | ' + escapeHtml(time)
+        : ''
+      ) +
+      '</div>';
+  }
+
+  function setStatus(
+    message,
+    type = ''
+  ) {
+    statusEl.textContent = message;
+
+    statusEl.className =
+      'status' +
+      (
+        type
+        ? ' ' + type
+        : ''
+      );
+  }
+
+  function getDeviceName() {
+    const ua =
+      navigator.userAgent || '';
+
+    if (/Android/i.test(ua)) {
+      return 'Android';
+    }
+
+    if (/iPhone|iPad|iPod/i.test(ua)) {
+      return 'iPhone/iPad';
+    }
+
+    if (/Windows/i.test(ua)) {
+      return 'Windows';
+    }
+
+    if (/Macintosh|Mac OS X/i.test(ua)) {
+      return 'Mac';
+    }
+
+    return 'Web';
+  }
+
+  function escapeHtml(value) {
+    return String(
+      value == null
+      ? ''
+      : value
+    )
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  window.addEventListener(
+    'resize',
+    resizeOverlay
+  );
+
+  window.addEventListener(
+    'beforeunload',
+    stopCamera
+  );
+</script>
+
+</body>
+</html>
